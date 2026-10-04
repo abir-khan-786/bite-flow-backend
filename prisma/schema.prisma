@@ -1,0 +1,267 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider  = "prisma-client-py"
+  interface = "asyncio"
+}
+
+// ==========================================
+// MODULE 0: ENUMS & CONSTANTS
+// ==========================================
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  RESTAURANT_OWNER
+  RESTAURANT_ADMIN
+   
+}
+
+enum SubscriptionPlan {
+  BASIC
+  PRO
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+}
+
+enum OrderStatus {
+  PENDING
+  COOKING
+  READY
+  SERVED
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BKASH
+  NAGAD
+  SSLCOMMERZ
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  CLEANING
+}
+
+// ==========================================
+// MODULE 1: TENANT & ORGANIZATION MANAGEMENT
+// ==========================================
+
+model Restaurant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logo      String?
+  phone     String
+  email     String   @unique
+  address   String?
+  currency  String   @default("BDT")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Module Relations
+  users        User[]
+  subscription Subscription?
+  categories   Category[]
+  menuItems    MenuItem[]
+  tables       Table[]
+  orders       Order[]
+  inventories  Inventory[]
+}
+
+// ==========================================
+// MODULE 2: SUBSCRIPTION & BILLING (SaaS Core)
+// ==========================================
+
+model Subscription {
+  id           String             @id @default(cuid())
+  restaurantId String             @unique
+  restaurant   Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  plan         SubscriptionPlan   @default(PRO)
+  status       SubscriptionStatus @default(ACTIVE)
+  startDate    DateTime           @default(now())
+  endDate      DateTime
+  stripeCustId String?
+  stripeSubId  String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+}
+
+// ==========================================
+// MODULE 3: AUTHENTICATION & ACCESS CONTROL (RBAC)
+// ==========================================
+
+model User {
+  id           String      @id @default(cuid())
+  name         String
+  email        String      @unique
+  password     String
+  role         UserRole    @default(RESTAURANT_OWNER)
+  phone        String?
+  avatar       String?
+  restaurantId String?
+  restaurant   Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  orders    Order[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([restaurantId])
+}
+
+// ==========================================
+// MODULE 4: MENU & CATALOG MANAGEMENT
+// ==========================================
+
+model Category {
+  id           String     @id @default(cuid())
+  name         String
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menuItems    MenuItem[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([restaurantId])
+}
+
+model MenuItem {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  price       Float
+  image       String?
+  isAvailable Boolean  @default(true)
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  orderItems OrderItem[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([restaurantId])
+  @@index([categoryId])
+}
+
+// ==========================================
+// MODULE 5: TABLE & FLOOR MANAGEMENT
+// ==========================================
+
+model Table {
+  id          String      @id @default(cuid())
+  tableNumber String
+  capacity    Int         @default(4)
+  status      TableStatus @default(AVAILABLE)
+
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  orders    Order[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([restaurantId])
+}
+
+// ==========================================
+// MODULE 6: ORDER & KITCHEN DISPLAY SYSTEM (KDS)
+// ==========================================
+
+model Order {
+  id            String        @id @default(cuid())
+  orderNumber   String
+  orderType     OrderType     @default(DINE_IN)
+  status        OrderStatus   @default(PENDING)
+  paymentStatus PaymentStatus @default(PENDING)
+  paymentMethod PaymentMethod @default(CASH)
+
+  totalAmount Float
+  tax         Float @default(0)
+  discount    Float @default(0)
+  netAmount   Float
+
+  tableId String?
+  table   Table?  @relation(fields: [tableId], references: [id], onDelete: SetNull)
+
+  waiterId String?
+  waiter   User?   @relation(fields: [waiterId], references: [id], onDelete: SetNull)
+
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  items     OrderItem[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([restaurantId])
+  @@index([status])
+}
+
+model OrderItem {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+
+  quantity   Int   @default(1)
+  unitPrice  Float
+  totalPrice Float
+  notes      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+}
+
+// ==========================================
+// MODULE 7: INVENTORY MANAGEMENT
+// ==========================================
+
+model Inventory {
+  id           String     @id @default(cuid())
+  itemName     String
+  quantity     Float
+  unit         String
+  minThreshold Float      @default(10)
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([restaurantId])
+}
