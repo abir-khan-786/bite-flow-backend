@@ -1,42 +1,50 @@
+import os
+from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
-from pydantic_settings import BaseSettings
 from typing import AsyncGenerator
-import os
 
-#.env file টা backend folder এর ভিতরে আছে কিনা নিশ্চিত করা
+#.env load - 100% guaranteed
+# backend/.env আর backend/app/db.py
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENV_PATH = os.path.join(BASE_DIR, ".env")
+load_dotenv(ENV_PATH)
 
-class Settings(BaseSettings):
-    CENTRAL_DB_URL: str
+print(f"🔍.env Path is her: {ENV_PATH}")
+print(f"📄.env Her Database? {os.path.exists(ENV_PATH)}")
 
-    class Config:
-        env_file = os.path.join(BASE_DIR, ".env")
-        env_file_encoding = 'utf-8'
-        extra = "ignore"
+CENTRAL_DB_URL_RAW = os.getenv("CENTRAL_DB_URL")
 
-# এখানেই error টা দিচ্ছিলো
-try:
-    settings = Settings()
-except Exception as e:
-    print("❌.env পাওয়া যায়নি! Error:", e)
-    print(f"📁 আমি খুঁজছি এইখানে: {os.path.join(BASE_DIR, '.env')}")
-    raise e
+if not CENTRAL_DB_URL_RAW:
+    print("❌ CENTRAL_DB_URL পাওয়া যায়নি.env তে!")
+    print("📂.env file এর ভিতরের content:")
+    if os.path.exists(ENV_PATH):
+        with open(ENV_PATH, 'r') as f:
+            print(f.read())
+    raise ValueError("CENTRAL_DB_URL is missing in.env")
 
 def clean_url(url: str) -> str:
     url = url.strip().strip('"').strip("'")
+    url = url.replace("?sslmode=require&channel_binding=require", "?ssl=require")
+    url = url.replace("?sslmode=require", "?ssl=require")
+    url = url.replace("&sslmode=require", "")
+    url = url.replace("&channel_binding=require", "")
+    url = url.replace("channel_binding=require", "")
+    if "?" in url and url.endswith("?"):
+        url = url[:-1]
+
     if url.startswith("postgresql+asyncpg://"):
         return url
     if url.startswith("postgresql://"):
         return url.replace("postgresql://", "postgresql+asyncpg://", 1)
     return url
 
-FINAL_URL = clean_url(settings.CENTRAL_DB_URL)
+FINAL_URL = clean_url(CENTRAL_DB_URL_RAW)
+print(f"✅ DB URL Loaded: {FINAL_URL[:40]}...")
 
 central_engine = create_async_engine(
     FINAL_URL,
     pool_pre_ping=True,
-    pool_size=20,
     echo=False
 )
 

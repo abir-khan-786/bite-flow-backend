@@ -1,26 +1,23 @@
-import os
-from datetime import datetime, timedelta
+import bcrypt
+from datetime import datetime, timedelta, timezone
 from jose import jwt
-from pwdlib import PasswordHash
-from dotenv import load_dotenv
-
-load_dotenv()
-
-SECRET_KEY = os.getenv("SECRET_KEY", "bite-flow-super-secret-key")
-ALGORITHM = "HS256"
-
-# এটা passlib এর চেয়ে 10x ফাস্ট এবং type error দেয় না
-password_hash = PasswordHash.recommended()
+from app.core.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 def hash_password(password: str) -> str:
-    return password_hash.hash(password)
+    # bcrypt sudhu 72 byte ney, tai truncate
+    pw_bytes = password.encode('utf-8')[:72]
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(pw_bytes, salt)
+    return hashed.decode('utf-8')
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return password_hash.verify(plain_password, hashed_password)
+def verify_password(plain: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(plain.encode('utf-8')[:72], hashed.encode('utf-8'))
+    except Exception:
+        return False
 
-def create_token(data: dict, expires_delta: timedelta = timedelta(hours=24)) -> str:
+def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.utcnow() + expires_delta
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)

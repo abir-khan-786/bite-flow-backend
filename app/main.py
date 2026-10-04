@@ -1,35 +1,27 @@
 from fastapi import FastAPI
 from sqlalchemy import text
-from app.db import central_engine
+from fastapi.middleware.cors import CORSMiddleware
+from app.db import central_engine, Base
+from app.routers import restaurant
+# User import of 
+app = FastAPI(title="Bite-Flow API")
 
-app = FastAPI(
-    title="Bite-Flow API",
-    version="1.0"
-)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+) 
+
+@app.on_event("startup")
+async def on_startup():
+    async with central_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    print("✅ Tables created")
+
+app.include_router(restaurant.router)
 
 @app.get("/")
 async def root():
-    return {"message": "Bite-Flow Backend Running 🔥"}
-
-@app.get("/health/db")
-async def database_health():
-    try:
-        async with central_engine.connect() as connection:
-            await connection.execute(text("SELECT 1"))
-
-        return {
-            "status": "success",
-            "database": "PostgreSQL connected"
-        }
-
-    except Exception as e:
-        return {
-            "status": "error",
-            "database": "PostgreSQL not connected",
-            "error": str(e)
-        }
-
-# তোর আগের /health টাও রাখলাম যাতে 404 না আসে
-@app.get("/health")
-async def health():
-    return await database_health()
+    return {"message": "Bite-Flow API is running"}
