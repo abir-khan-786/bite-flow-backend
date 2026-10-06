@@ -5,11 +5,13 @@ from app.modules.auth.schemas import RestaurantRegisterSchema, LoginSchema, Toke
 from app.modules.auth.dependencies import get_current_user
 from prisma.enums import UserRole
 from prisma.models import User
+from prisma.types import RestaurantCreateInput
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
 @router.post("/register-restaurant", status_code=status.HTTP_201_CREATED)
 async def register_restaurant(data: RestaurantRegisterSchema):
+    # Check if email or slug already exists
     existing_user = await db.user.find_unique(where={"email": data.email})
     if existing_user:
         raise HTTPException(status_code=400, detail="User email already exists!")
@@ -20,25 +22,35 @@ async def register_restaurant(data: RestaurantRegisterSchema):
 
     hashed_pwd = hash_password(data.password)
 
+    # Prisma Type-Safe Create Input
+    restaurant_data: RestaurantCreateInput = {
+        "name": data.restaurant_name,
+        "slug": data.slug,
+        "email": data.email,
+        "phone": data.phone,
+        "users": {
+            "create": [
+                {
+                    "name": data.owner_name,
+                    "email": data.email,
+                    "password": hashed_pwd,
+                    "role": UserRole.RESTAURANT_OWNER
+                }
+            ]
+        }
+    }
+
     new_restaurant = await db.restaurant.create(
-        data={
-            "name": data.restaurant_name,
-            "slug": data.slug,
-            "email": data.email,
-            "phone": data.phone,
-            "users": {
-                "create": [
-                    {
-                        "name": data.owner_name,
-                        "email": data.email,
-                        "password": hashed_pwd,
-                        "role": UserRole.RESTAURANT_OWNER
-                    }
-                ]
-            }
-        },
+        data=restaurant_data,
         include={"users": True}
     )
+
+    # Type Guard Check for Relation List
+    if not new_restaurant.users or len(new_restaurant.users) == 0:
+        raise HTTPException(
+            status_code=500, 
+            detail="Failed to initialize owner user account"
+        )
 
     owner = new_restaurant.users[0]
     token = create_access_token(subject=owner.id)
@@ -47,7 +59,8 @@ async def register_restaurant(data: RestaurantRegisterSchema):
         "success": True,
         "message": "Restaurant registered successfully",
         "access_token": token,
-        "restaurant_id": new_restaurant.id
+        "restaurant_id": new_restaurant.id,
+        "owner_id": owner.id
     }
 
 @router.post("/login", response_model=TokenResponse)
